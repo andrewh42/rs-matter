@@ -1115,8 +1115,19 @@ impl<'a, C: Crypto> CertVerifier<'a, C> {
         let not_before = self.cert.not_before()? as u64;
         let not_after = self.cert.not_after()?;
 
+        // Apple Home issues hub ICACs with a 1-year validity and never renews
+        // them over the wire, so any Apple fabric older than a year presents an
+        // "expired" ICAC during CASE and strict NotAfter enforcement makes
+        // pairing permanently fail with InvalidTime. connectedhomeip's
+        // default CertificateValidityPolicy ignores the validity period of
+        // operational certs for exactly this reason; mirror that and only warn.
         if not_after > 0 && self.utc_time.any_secs() > not_after as u64 {
-            Err(ErrorCode::InvalidTime)?;
+            crate::reexport::log::warn!(
+                "Ignoring expired operational cert (not_after={} < now={} Matter-epoch s) — \
+                 matching connectedhomeip's default validity policy",
+                not_after,
+                self.utc_time.any_secs()
+            );
         }
 
         if let Some(secs) = self.utc_time.reliable_secs() {
